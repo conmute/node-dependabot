@@ -1,55 +1,50 @@
 import "dotenv/config";
 
-import inquirer from "inquirer";
 import semver from "semver";
 
 import { checkDependencyUpdates } from "./utils/npmDeps.js";
-import { getBitbucketClient } from "./utils/vendorBitbucket.js";
 import { getBranchName, handleError } from "./utils/fn.js";
-
-const BITBUCKET_TOKEN = process.env.BITBUCKET_TOKEN;
-
-// Use .env instead or args
-//
-// TODO: add support for multiple repositories
-const BITBUCKET_WORKSPACE = "romankoss";
-const REPO_NAME = "angular-bootstrap";
-const BRANCH_NAME = "master";
-
-// TODO: refactor to handle multiple repositories, including private with access token
-const PROMPT_PACKAGES = [
-  "angular",
-  // "angular",
-  // "angular",
-  // "angular",
-  // "angular",
-  // "angular",
-  // "angular",
-  // "angular",
-  // "angular",
-];
+import { promptUserData, promptToken } from "./utils/prompter.js";
+import { BITBUCKET_WORKSPACE } from "./utils/env.js";
+import { getBitbucketClient } from "./utils/vendorBitbucket.js";
 
 main();
 
-const bitbucket = getBitbucketClient({ accessToken: BITBUCKET_TOKEN });
-
 async function main() {
+  if (!BITBUCKET_WORKSPACE) {
+    throw new Error(
+      "BITBUCKET_WORKSPACE env variable is not defined! prompt not supported yet…",
+    );
+  }
+
+  const accessToken =
+    process.env.BITBUCKET_TOKEN || (await userInput.promptToken());
+  const bitbucketClient = getBitbucketClient({ accessToken });
+
+  const { branchName, repositoryName, packageList, packageJson } =
+    await promptUserData({
+      bitbucketClient,
+    });
+
   const dependencyLatestVersions = await checkDependencyUpdates({
-    dependencies: PROMPT_PACKAGES,
+    dependencies: packageList,
   });
-  await updatePackageJsonDependencies({ dependencyLatestVersions });
+  const result = await updatePackageJsonDependencies({
+    bitbucketClient,
+    dependencyLatestVersions,
+    branchName,
+    repositoryName,
+    packageJson,
+  });
 }
 
-async function updatePackageJsonDependencies({ dependencyLatestVersions }) {
-  // TODO: add support for monorepo with nested package.json
-  const { packageJson } = await bitbucket
-    .fetchPackageJsonDependencies({
-      branch: BRANCH_NAME,
-      repo: REPO_NAME,
-      workspace: BITBUCKET_WORKSPACE,
-    })
-    .catch(handleError);
-
+async function updatePackageJsonDependencies({
+  dependencyLatestVersions,
+  branchName,
+  repositoryName,
+  bitbucketClient,
+  packageJson,
+}) {
   const depsKeys = ["dependencies", "peerDependencies", "devDependencies"];
 
   const pkgs = Object.keys(dependencyLatestVersions);
@@ -73,7 +68,15 @@ async function updatePackageJsonDependencies({ dependencyLatestVersions }) {
         );
         const oldVersion = packageJson[objKey][packageName];
         const newVersion = dependencyLatestVersions[packageName];
-        if (semver.gt(newVersion, oldVersion)) {
+
+        const greaterVersion =
+          semver.valid(oldVersion) && semver.gt(newVersion, oldVersion);
+        const satisfiesVersionUpdate =
+          oldVersion !== newVersion &&
+          oldVersion.includes("^") &&
+          semver.satisfies(newVersion, oldVersion);
+
+        if (greaterVersion || satisfiesVersionUpdate) {
           packageJson[objKey][packageName] = newVersion;
         }
         updatedDeps.push({ packageName, newVersion });
@@ -82,13 +85,15 @@ async function updatePackageJsonDependencies({ dependencyLatestVersions }) {
     console.log(`…finished ${objKey}!`);
   });
 
-  // console.log({ packageJson: JSON.stringify(packageJson, null, 2), raw });
+  if (!updatedDeps.length) {
+    console.log("Nothing to update!");
+  }
 
   const generatedBranchName = getBranchName({ packages: updatedDeps });
 
-  const branchExist = await bitbucket.checkBranchNameExists({
+  const branchExist = await bitbucketClient.checkBranchNameExists({
     name: generatedBranchName,
-    repo: REPO_NAME,
+    repo: repositoryName,
     workspace: BITBUCKET_WORKSPACE,
   });
 
@@ -97,19 +102,20 @@ async function updatePackageJsonDependencies({ dependencyLatestVersions }) {
     throw new Error(`${generatedBranchName} already exists!`);
   }
 
-  await bitbucket.pushPackageJson({
+  await bitbucketClient.pushPackageJson({
     packageJson,
     branch: generatedBranchName,
-    parent: BRANCH_NAME,
+    parent: branchName,
     workspace: BITBUCKET_WORKSPACE,
-    repo: REPO_NAME,
+    repo: repositoryName,
   });
 
-  await bitbucket.createPullRequest({
-    title: `Bump up ${updatedDeps.join(", ")}`,
+  const result = await bitbucketClient.createPullRequest({
+    title: `Bump up ${updatedDeps.map((x) => x.packageName).join(", ")}`,
     workspace: BITBUCKET_WORKSPACE,
-    repo: REPO_NAME,
+    repo: repositoryName,
     sourceBranch: generatedBranchName,
-    destinationBranch: BRANCH_NAME,
+    destinationBranch: branchName,
   });
+  console.log("PR href: ", result?.data?.links?.html?.href);
 }

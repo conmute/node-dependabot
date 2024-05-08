@@ -1,4 +1,21 @@
 import Queue from "p-queue";
+import { handleError } from "./fn.js";
+
+export async function getPackageJson({
+  branch,
+  repo,
+  workspace,
+  bitbucketClient,
+}) {
+  // TODO: add support for monorepo with nested package.json
+  return await bitbucketClient
+    .fetchPackageJsonDependencies({
+      branch,
+      repo,
+      workspace,
+    })
+    .catch(handleError);
+}
 
 export async function checkDependencyUpdates({ dependencies }) {
   const dependencyLatestVersions = {};
@@ -22,7 +39,7 @@ export async function checkDependencyUpdates({ dependencies }) {
   );
   try {
     await queue.onIdle();
-    console.log("Finished!", dependencyLatestVersions);
+    // console.log("Finished!", dependencyLatestVersions);
   } catch (e) {
     console.error(e);
   }
@@ -30,8 +47,8 @@ export async function checkDependencyUpdates({ dependencies }) {
   return dependencyLatestVersions;
 }
 
-function npmjsPackageUrlTemplate(packageName) {
-  return `https://registry.npmjs.org/${packageName}`;
+function npmjsPackageUrlTemplate(path) {
+  return `https://registry.npmjs.org/${path}`;
 }
 
 function calculateLatestPackageVersion({ versions }) {
@@ -77,4 +94,14 @@ async function getPackageLatestVersion(
   calculateLatestPackageVersion({ versions: data.time });
 
   return { packageName, latestVersion };
+}
+
+export async function searchNpmPackages({ search }) {
+  const response = await fetch(
+    npmjsPackageUrlTemplate(
+      `-/v1/search?text=${search}&page=1&ranking=popularity`,
+    ),
+  );
+  const data = await response.json();
+  return data.objects.map((item) => item.package);
 }

@@ -3,7 +3,6 @@ export function handleError(e) {
   process.exit(1);
 }
 
-export function getBranchName() {
-  const currentDate = new Date().toISOString().slice(0, 10);
-  return `ndepend-${currentDate}`;
+export function getBranchName({ packages }) {
+  return `npm-deps-update/${packages.map(({ packageName, newVersion }) => [packageName, newVersion].join("-")).join("/")}`;
 }

@@ -10,6 +10,7 @@ import { getBitbucketClient } from "./utils/vendorBitbucket.js";
 
 main();
 
+// TODO: from user input generate an cli command which we can use for imidiate runs
 async function main() {
   if (!BITBUCKET_WORKSPACE) {
     throw new Error(

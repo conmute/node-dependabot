@@ -79,8 +79,8 @@ async function updatePackageJsonDependencies({
 
         if (greaterVersion || satisfiesVersionUpdate) {
           packageJson[objKey][packageName] = newVersion;
+          updatedDeps.push({ packageName, newVersion });
         }
-        updatedDeps.push({ packageName, newVersion });
       }
     });
     console.log(`…finished ${objKey}!`);

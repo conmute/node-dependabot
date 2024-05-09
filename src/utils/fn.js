@@ -5,5 +5,9 @@ export function handleError(e) {
 }
 
 export function getBranchName({ packages }) {
-  return `npm-deps-update/${packages.map(({ packageName, newVersion }) => [packageName, newVersion].join("-")).join("/")}`;
+  const detailBranch = packages
+    .sort()
+    .map(({ packageName, newVersion }) => [packageName, newVersion].join("-"))
+    .join("/");
+  return `npm-deps-update/${detailBranch}`;
 }
